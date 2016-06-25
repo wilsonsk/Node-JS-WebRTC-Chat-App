@@ -1,0 +1,198 @@
+<div class="container-fluid">
+	<h1>Hello WebRTC</h1>
+	<p><button id="takeProfilePic" type="button" autofocus="true">Create Profile Picture</button></p>
+	<p><video id="videoArea" autoplay></video></p>
+	<p><video id="incomingVideoArea" autoplay></video></p>
+	<!-- canvas is hidden  because it is only used for temporary processing of the image -->
+	<p><canvas id="profilePicCanvas" style="display: none;"></canvas>
+	<!-- img tag is where we will display output image -->
+	<div><img id="profilePicOutput"></div>
+
+<!-- 	//chat		-->
+	<div>
+		<p><label>Your Name</lable><input id="myName" type="text"></input></p>
+		<p><label>Message</lable><input id="myMessage" type="text"></input></p>
+		<p><input id="sendMessage" type="submit"></input></p>
+		<p><div id="chatArea">Message Output:</br></div></p>
+		<p><div id="signalingArea">Signaling Message:</br></div></p>
+	</div>
+
+</div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+	var getNode = function(selector){
+		return document.querySelector(selector);
+	}
+	var videoArea = getNode('#videoArea');
+	var incomingVideoArea = getNode('#incomingVideoArea');
+	var videoSelect = getNode('#camera');
+	var profilePicCanvas = getNode('#profilePicCanvas');
+	var takePicButton = getNode('#takeProfilePic');
+	var profilePicOutput = getNode('#profilePicOutput');
+	
+	var myName = getNode('#myName');
+	var myMessage = getNode('#myMessage');
+	var sendMessage = getNode('#sendMessage');
+	var chatArea = getNode('#chatArea');
+	var signalingArea = getNode('#signalingArea');
+	var ROOM = "chat";
+	var SIGNAL_ROOM = "signal_room";
+
+	//ICE peerConnections
+	//pass in public stun server that google makes availbe for rtc testing NOT for production: if production change to a stun server that you set up and maintain!
+	var configuration = {
+		'iceservers': [{
+			'url': 'stun:stun.l.google.com:19302'
+		}]
+	};
+	//used for events being triggered during signaling process
+	var rtcPeerConn;
+
+	var width = 240;	 // desired width of profile picture
+	var height = 0; 	// calculated later based on image ratio
+	var streaming = false;	//used to determine when the video has been loaded
+	
+	takePicButton.addEventListener('click', function(ev){
+		takeProfilePic();
+		ev.preventDefault();
+	})
+
+	//captures event called canplay
+	//calculate width and height
+	videoArea.addEventListener('canplay', function(ev){
+		if(!streaming){
+			height = videoArea.videoHeight / (videoArea.videoWidth/width);
+		
+			if(isNaN(height)){
+				height = width / (4/3);
+			}
+			videoArea.setAttribute('width', width);
+			videoArea.setAttribute('height', height);
+			profilePicCanvas.setAttribute('width', width);
+			profilePicCanvas.setAttribute('height', height);
+			streaming = true;
+		}
+	});
+
+	function takeProfilePic(){
+		var context = profilePicCanvas.getContext('2d');
+		if(width && height){
+			profilePicCanvas.width = width;
+			profilePicCanvas.height = height;
+			context.drawImage(videoArea, 0, 0, width, height);
+			var data = profilePicCanvas.toDataURL('image/png');
+			profilePicOutput.setAttribute('src', data);
+		}
+	}
+
+	function displayMessage(message){
+		chatArea.innerHTML = chatArea.innerHTML + "</br>" + message;
+	}
+
+	function displaySignalMessage(message){
+		signalingArea.innerHTML = signalingArea.innerHTML + "</br>" + message;
+	}
+
+	try{
+		var socket = io();
+	}catch(err){
+		if(err){ console.log('error socket not connected to server'); }
+	}
+
+	if(socket !== undefined){
+		console.log('okkkk');
+		socket.emit('ready', {"chat_room": ROOM, "signal_room": SIGNAL_ROOM});
+		socket.on('announce', function(data){
+			displayMessage(data.message);
+		});
+		socket.emit('signal', {"type":"user_here", "message":"ready for a call?", "room":"SIGNAL_ROOM"});
+		socket.on('signaling_message', function(data){
+			displaySignalMessage('signal received: ' + data.type);
+			if(!rtcPeerConn){
+				startSignaling();
+				//send our offer and ice candidates if we are the ones initiating the conversation
+				if(data.type != 'user_here'){
+					var message = JSON.parse(data.message);
+					console.log('message: sdp?' + message.sdp.type);
+					//if sdp message, then remote party just made us an offer and we should responde with an answer
+					if(message.sdp){
+						rtcPeerConn.setRemoteDescription(new RTCSessionDescription(message.sdp), function(){
+							//if we received an offer, we need to answer
+							if(rtcPeerConn.remoteDescription.type == 'offer'){
+								rtcPeerConn.createAnswer(sendLocalDesc, logError);
+							}
+						}, logError);
+					}
+				}else{
+					//if not sdp, then it is an ice candidate and we should add that ice candidate to our rtcPeerConnection
+					console.log('message.candidate ' + message.candidate);
+					rtcPeerConn.addIceCandidate(new RTCIceCandidate(message.candidate));
+				}
+			}
+		});
+	}
+
+	//initialize rtcPeerConn with our configurations parameters
+	function startSignaling(){
+		displaySignalMessage("starting signaling...");
+		rtcPeerConn = new RTCPeerConnection(configuration);
+		
+		//sends any ice candidate to the other peer
+		rtcPeerConn.onicecandidate = function(ev){
+			if(ev.candidate){
+				//JSON.stringify({'candidate': ev.candidate}) is the only part of this emit statement that is defined by RTCPeerConnect/RTC standard
+				socket.emit('signal', {"type":"ice candidate", "message": JSON.stringify({'candidate': ev.candidate}), "room":SIGNAL_ROOM});
+				displaySignalMessage("completed that ice candidate");
+			}	
+		};
+
+		//let the 'negotiationneeded'event trigger offer generation
+		//triggered when we receive an SDP offer, so then return our offer to our peer
+		rtcPeerConn.onnegotiationneeded = function(){
+			displaySignalMessage("on negotiation called");
+			rtcPeerConn.createOffer(sendLocalDesc, logError);
+		};
+
+		//event for once remote stream arrives, show it in the remote video element
+		rtcPeerConn.ontrack = function(ev){
+			displaySignalMessage("going to add their stream");
+			incomingVideoArea.srcObject = ev.stream[0];
+		};
+
+		//event for our own media stream
+                navigator.mediaDevices.getUserMedia = (navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mediaDevices.getUserMedia || navigator.msgGetUserMedia);
+                var constraints = {
+                        audio: true,
+                        video: {
+                                madatory: {
+                                },
+                        }
+
+                };
+		if(navigator.mediaDevices.getUserMedia){
+                	var promise = navigator.mediaDevices.getUserMedia(constraints);
+                        promise.then(function(stream){
+                                displaySignalMessage("going to display my stream...");
+				videoArea.src = window.URL.createObjectURL(stream);
+				stream.getTracks().forEach(track => rtcPeerConn.addTrack(track, stream));
+                        });
+                        promise.catch(function(error){
+                                onError(error);
+                        });
+                }
+
+
+	}	
+	
+	//creates local Session Description Protocol (sdp): containing info about browsers video codec, resolution, etc. send over signaling channel to our peers
+	function sendLocalDesc(desc){
+		rtcPeerConn.setLocalDescription(desc, function(){
+			displaySignalMessage("Sending local description");
+			socket.emit('signal', {"type":"SDP", "message": JSON.stringify({ 'sdp': rtcPeerConn.localDescription}), "room":SIGNAL_ROOM});
+		}, logError);
+	}
+	function logError(error){
+		displaySignalMessage(error.name + ':' + error.message);
+	}
+
+</script>

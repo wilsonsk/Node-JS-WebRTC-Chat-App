@@ -1,0 +1,156 @@
+<div class="container-fluid">
+	<h1>Hello WebRTC</h1>
+	<p><div>Video: <select id="camera"></select></p>
+	<p><button id="takeProfilePic" type="button" autofocus="true">Create Profile Picture</button></p>
+	<p><video id="videoArea" autoplay></video></p>
+	<p><video id="incomingVideoArea" autoplay></video></p>
+	<!-- canvas is hidden  because it is only used for temporary processing of the image -->
+	<p><canvas id="profilePicCanvas" style="display: none;"></canvas>
+	<!-- img tag is where we will display output image -->
+	<div><img id="profilePicOutput"></div>
+
+<!-- 	//chat		-->
+	<div>
+		<p><label>Your Name</lable><input id="myName" type="text"></input></p>
+		<p><label>Message</lable><input id="myMessage" type="text"></input></p>
+		<p><input id="sendMessage" type="submit"></input></p>
+		<p><div id="chatArea">Message Output:</br></div></p>
+	</div>
+
+</div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+	var getNode = function(selector){
+		return document.querySelector(selector);
+	}
+	var videoArea = getNode('#videoArea');
+	var incomingVideoArea = getNode('#incomingVideoArea');
+	var videoSelect = getNode('#camera');
+	var profilePicCanvas = getNode('#profilePicCanvas');
+	var takePicButton = getNode('#takeProfilePic');
+	var profilePicOutput = getNode('#profilePicOutput');
+	
+	var myName = getNode('#myName');
+	var myMessage = getNode('#myMessage');
+	var sendMessage = getNode('#sendMessage');
+	var chatArea = getNode('#chatArea');
+	var ROOM = "chat";
+
+
+	var width = 240;	 // desired width of profile picture
+	var height = 0; 	// calculated later based on image ratio
+	var streaming = false;	//used to determine when the video has been loaded
+	
+	takePicButton.addEventListener('click', function(ev){
+		takeProfilePic();
+		ev.preventDefault();
+	})
+
+	//captures event called canplay
+	//calculate width and height
+	videoArea.addEventListener('canplay', function(ev){
+		if(!streaming){
+			height = videoArea.videoHeight / (videoArea.videoWidth/width);
+		
+			if(isNaN(height)){
+				height = width / (4/3);
+			}
+			videoArea.setAttribute('width', width);
+			videoArea.setAttribute('height', height);
+			profilePicCanvas.setAttribute('width', width);
+			profilePicCanvas.setAttribute('height', height);
+			streaming = true;
+		}
+	});
+
+	function takeProfilePic(){
+		var context = profilePicCanvas.getContext('2d');
+		if(width && height){
+			profilePicCanvas.width = width;
+			profilePicCanvas.height = height;
+			context.drawImage(videoArea, 0, 0, width, height);
+			var data = profilePicCanvas.toDataURL('image/png');
+			profilePicOutput.setAttribute('src', data);
+		}
+	}
+
+	function displayMessage(message){
+		chatArea.innerHTML = chatArea.innerHTML + "</br>" + message;
+	}
+
+	/*
+	if(typeof MediaStreamTrack === 'undefined' || typeof MediaStreamTrack.getSources === 'undefined'){
+		navigator.mediaDevices.enumerateDevices().then(function(devices){
+			getCameras(devices);
+		});
+	}else{
+		MediaStreamTrack.getSources(getCameras);
+	}
+	*/
+	
+
+	//videoSelect.onchange = startStream;
+	
+	//startStream();
+	try{
+		var socket = io();
+	}catch(err){
+		if(err){ console.log('error socket not connected to server'); }
+	}
+
+	if(socket !== undefined){
+		console.log('okkkk');
+		socket.emit('ready', ROOM);
+		socket.on('announce', function(data){
+			displayMessage(data.message);
+		});
+	}
+
+	//getCameras function traverses a list of all the video sources available, each available source will be appended to our select list
+	//populating our select list
+	function getCameras(sourceInfos){
+		for(var i = 0; i !== sourceInfos.length; i++){
+			var sourceInfo = sourceInfos[i];
+			var option = document.createElement('option');
+			option.value = sourceInfo.id;
+			if(sourceInfo.kind === 'video'){
+				option.text = sourceInfo.label || 'camera ' + (videoSelect.lenght + 1);
+				videoSelect.appendChild(option);
+			}
+		}
+	}
+	function onSuccess(stream){
+		console.log('success: we have a stream');
+		//Create objectURL to the stream which has been passed in, then setting the source of the video tag to that stream's URL
+		videoArea.src = window.URL.createObjectURL(stream);
+		videoArea.play();	
+	}
+	function onError(error){
+		console.log('error with getUserMedia: ', error);
+	}
+	
+	$(document).ready(function(){
+		navigator.mediaDevices.getUserMedia = (navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mediaDevices.getUserMedia || navigator.msgGetUserMedia);
+		var videoSource = videoSelect.value;
+		var constraints = {
+			audio: true, 
+			video: {
+				madatory: {
+				},
+				optional: [{
+					sourceID: videoSource
+				}]
+			}
+				
+		};
+		if(navigator.mediaDevices.getUserMedia){
+			var promise = navigator.mediaDevices.getUserMedia(constraints, onSuccess, onError);
+			promise.then(function(stream){
+				onSuccess(stream);
+			});
+			promise.catch(function(error){
+				onError(error);
+			});
+		}
+	});
+</script>
