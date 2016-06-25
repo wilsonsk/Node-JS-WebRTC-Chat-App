@@ -2,6 +2,12 @@
 		<video id="myVideoTag" autoplay></video>
 		<video id="theirVideoTag" autoplay></video>
 		<div>
+			<input type="file" id="sendFile"/><br/>
+			<progress id="fileProgress" value=“1” max="100"></progress>
+			<a id="receivedFileLink"></a>
+			<hr>
+		</div>
+		<div>
 			<label>Your Name</label><input id="myName" type="text"/>
 			<label>Message</label><input id="myMessage" type="text"/>
 			<input id="sendMessage" type="submit"/>
@@ -18,17 +24,31 @@
 			var sendMessage = document.querySelector("#sendMessage");
 			var chatArea = document.querySelector("#chatArea");
 			var signalingArea = document.querySelector("#signalingArea");
+			var sendFile = document.querySelector("input#sendFile");
+			var fileProgress = document.querySelector("progress#fileProgress");
+			var downloadLink = document.querySelector('a#receivedFileLink');
 			var ROOM = "chat";
 			var SIGNAL_ROOM = "signal_room";
+			var FILES_ROOM = "files";
 			var configuration = {
 				'iceServers': [{
 					'url': 'stun:stun.l.google.com:19302'
 				}]
 			};
 			var rtcPeerConn;
-			
+			var dataChannelOptions = {
+				ordered: false, //no guaranteed delivery, unreliable but faster 
+				maxRetransmitTime: 1000 //milliseconds
+			};
+
+			var dataChannel;
+			var receivedFileName;
+			var receivedFileSize;
+			var fileBuffer = [];
+			var fileSize = 0;
+
 			io = io.connect();
-			io.emit('ready', {"chat_room": ROOM, "signal_room": SIGNAL_ROOM});
+			io.emit('ready', {"chat_room": ROOM, "signal_room": SIGNAL_ROOM, "files_room": FILES_ROOM});
 			
 			//Send a first signaling message to anyone listening
 			//This normally would be on a button click
@@ -58,14 +78,25 @@
 				
 			});
 			
+			io.on('files', function(data) {
+				receivedFileName = data.filename;
+				receivedFileSize = data.filesize;
+				displaySignalMessage("websockets says the file on it's way is " + receivedFileName + " (" + receivedFileSize + ")");
+			});
+
 			function startSignaling() {
 				displaySignalMessage("starting signaling...");
 				try{
-					rtcPeerConn = new RTCPeerConnection(configuration);
+					rtcPeerConn = new RTCPeerConnection(configuration, {optional: [{RtpDataChannels: true}]});
 				}catch(err){
 					if(err){ console.log("browseer error...switching protocol");
 					rtcPeerConn = new webkitRTCPeerConnection(configuration); }
 				}
+	
+				dataChannel = rtcPeerConn.createDataChannel('textMessages', dataChannelOptions);
+				dataChannel.onopen = dataChannelStateChanged;
+				rtcPeerConn.ondatachannel = receiveDataChannel;
+				console.log(rtcPeerConn);
 				// send any ice candidates to the other peer
 				rtcPeerConn.onicecandidate = function (evt) {
 					if (evt.candidate)
@@ -98,6 +129,43 @@
 			  
 			}
 			
+
+			function dataChannelStateChanged() {
+				if (dataChannel.readyState === 'open') {
+					displaySignalMessage("Data Channel open");
+					dataChannel.onmessage = receiveDataChannelMessage;
+				}
+			}
+			
+			function receiveDataChannel(event) {
+				console.log('datachannelreceivedata');
+				displaySignalMessage("Receiving a data channel");
+				dataChannel = event.channel;
+				dataChannel.onmessage = receiveDataChannelMessage;
+			}
+			
+			function receiveDataChannelMessage(event) {
+				console.log('receivedatachannelMessage');
+				displaySignalMessage("Incoming Message");
+				displayMessage("From DataChannel: " + event.data);
+				
+				//This is where we process incoming files
+				fileBuffer.push(event.data);
+				fileSize += event.data.byteLength;
+				fileProgress.value = fileSize;
+				
+				//Provide link to downloadable file when complete
+				if (fileSize === receivedFileSize) {
+					var received = new window.Blob(fileBuffer);
+					fileBuffer = [];
+
+					downloadLink.href = URL.createObjectURL(received);
+					downloadLink.download = receivedFileName;
+					downloadLink.appendChild(document.createTextNode(receivedFileName + "(" + fileSize + ") bytes"));
+				}
+				
+			}
+
 			function sendLocalDesc(desc) {
 				rtcPeerConn.setLocalDescription(desc, function () {
 					displaySignalMessage("sending local description");
@@ -129,7 +197,31 @@
 				io.emit('send', {"author":myName.value, "message":myMessage.value, "room":ROOM});
 				ev.preventDefault();
 			}, false);
+
+			sendFile.addEventListener('change', function(ev){
+				var file = sendFile.files[0];
+				displaySignalMessage("sending file " + file.name + " (" + file.size + ") ...");
+				io.emit('files',{"filename":file.name, "filesize":file.size, "room":FILES_ROOM});
+				
+				fileProgress.max = file.size;
+				var chunkSize = 16384;
+				var sliceFile = function(offset) {
+					var reader = new window.FileReader();
+					reader.onload = (function() {
+						return function(e) {
+							dataChannel.send(e.target.result);
+							if (file.size > offset + e.target.result.byteLength) {
+								window.setTimeout(sliceFile, 0, offset + chunkSize);
+								}
+							fileProgress.value = offset + e.target.result.byteLength;
+						};
+					})(file);
+					var slice = file.slice(offset, offset + chunkSize);
+					reader.readAsArrayBuffer(slice);
+				};
+				sliceFile(0);		
 			
-			
-			
+			}, false);
+		
+		
 		</script>
