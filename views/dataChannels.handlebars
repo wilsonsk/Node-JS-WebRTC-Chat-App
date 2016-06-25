@@ -1,11 +1,4 @@
-<!doctype html>
-<html lang="en">
-	<head>
-		<title>O'Reilly Introduction to WebRTC</title>
-		<link rel="stylesheet" type="text/css" href="styles.css">
 		<script src="/socket.io/socket.io.js"></script>
-	</head>
-	<body>
 		<video id="myVideoTag" autoplay></video>
 		<video id="theirVideoTag" autoplay></video>
 		<div>
@@ -155,6 +148,7 @@
 				displayMessage("From DataChannel: " + event.data);
 				
 				//This is where we process incoming files
+				//pushes each incoming 16k chunk into the file buffer
 				fileBuffer.push(event.data);
 				fileSize += event.data.byteLength;
 				fileProgress.value = fileSize;
@@ -210,11 +204,13 @@
 				io.emit('files',{"filename":file.name, "filesize":file.size, "room":FILES_ROOM});
 				
 				fileProgress.max = file.size;
-				var chunkSize = 16384;
+				var chunkSize = 16384;	//16kb
 				var sliceFile = function(offset) {
+					//fileReader() object lets web app asynch read the contents of files (or raw data buffers) stored on the users computer
 					var reader = new window.FileReader();
 					reader.onload = (function() {
 						return function(e) {
+							//sends each 16k chunk across data channel
 							dataChannel.send(e.target.result);
 							if (file.size > offset + e.target.result.byteLength) {
 								window.setTimeout(sliceFile, 0, offset + chunkSize);
@@ -230,5 +226,3 @@
 			}, false);
 			
 		</script>
-	</body>
-</html>
