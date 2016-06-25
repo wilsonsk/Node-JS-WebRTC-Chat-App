@@ -87,16 +87,12 @@
 			function startSignaling() {
 				displaySignalMessage("starting signaling...");
 				try{
-					rtcPeerConn = new RTCPeerConnection(configuration, {optional: [{RtpDataChannels: true}]});
+					rtcPeerConn = new RTCPeerConnection(configuration);
 				}catch(err){
 					if(err){ console.log("browseer error...switching protocol");
 					rtcPeerConn = new webkitRTCPeerConnection(configuration); }
 				}
 	
-				dataChannel = rtcPeerConn.createDataChannel('textMessages', dataChannelOptions);
-				dataChannel.onopen = dataChannelStateChanged;
-				rtcPeerConn.ondatachannel = receiveDataChannel;
-				console.log(rtcPeerConn);
 				// send any ice candidates to the other peer
 				rtcPeerConn.onicecandidate = function (evt) {
 					if (evt.candidate)
@@ -110,6 +106,10 @@
 					rtcPeerConn.createOffer(sendLocalDesc, logError);
 				}
 				
+				dataChannel = rtcPeerConn.createDataChannel('textMessages', dataChannelOptions);
+				dataChannel.onopen = dataChannelStateChanged;
+				rtcPeerConn.ondatachannel = receiveDataChannel;
+
 				// once remote stream arrives, show it in the remote video element
 				rtcPeerConn.onaddstream = function (evt) {
 					displaySignalMessage("going to add their stream...");

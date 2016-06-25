@@ -39,6 +39,12 @@ io.on('connection', function(socket){
 			message: 'new client in the ' + req + ' room.'
 		})
 	});
+	socket.on('send', function(req) {
+	    socket.broadcast.emit('message', {
+	        message: req.message,
+			author: req.author
+	    });
+	})
 	//WebRTC signalling
 	//user1 joins signaling server
 	//user1 sends offer
