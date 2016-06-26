@@ -103,9 +103,6 @@
 					rtcPeerConn.createOffer(sendLocalDesc, logError);
 				}
 				
-				dataChannel = rtcPeerConn.createDataChannel('textMessages', dataChannelOptions);
-				dataChannel.onopen = dataChannelStateChanged;
-				rtcPeerConn.ondatachannel = receiveDataChannel;
 				// once remote stream arrives, show it in the remote video element
 				rtcPeerConn.onaddstream = function (evt) {
 					displaySignalMessage("going to add their stream...");
@@ -123,6 +120,9 @@
 					rtcPeerConn.addStream(stream);
 				}, logError);
 			  
+				dataChannel = rtcPeerConn.createDataChannel('textMessages', dataChannelOptions);
+				dataChannel.onopen = dataChannelStateChanged;
+				rtcPeerConn.ondatachannel = receiveDataChannel;
 			}
 			
 			function dataChannelStateChanged() {

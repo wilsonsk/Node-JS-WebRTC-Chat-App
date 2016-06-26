@@ -19,7 +19,7 @@ var io = require('socket.io').listen(server);
 app.get('/', function(req, res){
 	var context = {};
 	context = 'WebRTC Project Homepage';
-	res.render('myPeerConn2', {title: context});
+	res.render('myPeerConn', {title: context});
 });
 
 io.on('connection', function(socket){

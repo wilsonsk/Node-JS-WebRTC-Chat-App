@@ -69,12 +69,14 @@
 					//RTCSessionDescription.type == describing the session description's type: answer, offer, pranswer, rollback
 					//if this remote sdp is an offer then create an answer by send local sdp of its own to remote peer
 					if(rtcPeerConn.remoteDescription.type == 'offer'){
+						console.log('creating answer SDP to offer SDP');
 						rtcPeerConn.createAnswer(sendLocalDesc, logError);
 					}
-				}. logError);
+				}, logError);
 			}else{
 				//if message.sdp is null, then it is an ICE candidate from the remote peer and it needs to be added the local rtcPeerConn's remote sdp which describes
 				//the state of the remote end of the connection
+				displaySignalMessage('added peers ice candidate');
 				rtcPeerConn.addIceCandidate(new RTCIceCandidate(message.candidate));		
 			}
 		}
@@ -89,12 +91,15 @@
 			if(err){ console.log("browseer error...switching protocol");
 			rtcPeerConn = new webkitRTCPeerConnection(configuration); }
 		}
+
+		//dataChannel = rtcPeerConn.createDataChannel('textMessages', dataChannelOptions);
+		//dataChannel.onopen = dataChannelStateChanged;
+		//rtcPeerConn.ondatachannel = receiveDataChannel;
+
 		//event handler for when local peer has ICE candidate to rtcPeerConn's remote peer upon receiving remote peer's SDP offer
 		//this happens whenever the local ICE agent needs to deliver a message to remote peer
 		//should deliver ICE candidate whose SDP can be found in the event's candidate property to the remote peer via signaling 'signal' (signaling server)
 		rtcPeerConn.onicecandidate = function(evt){
-			console.log('evt: ' + evt);
-			console.log('evt.candidate: ' + evt.candidate);
 			if(evt.candidate){
 				//Send ice candidate to remote peer via signaling 'signal'
 				io.emit('signal', {"type":"ice candidate", "message":JSON.stringify({'candidate':evt.candidate}), "room":SIGNAL_ROOM});
@@ -125,6 +130,7 @@
 			myVideoArea.src = URL.createObjectURL(stream);
 			rtcPeerConn.addStream(stream);
 		}, logError);
+		dataChannel = rtcPeerConn.createDataChannel('textMessages', dataChannelOptions);
 
 	}
 
