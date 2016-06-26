@@ -1,4 +1,4 @@
-		<script src="/socket.io/socket.io.js"></script>
+<script src="/socket.io/socket.io.js"></script>
 		<video id="myVideoTag" autoplay></video>
 		<video id="theirVideoTag" autoplay></video>
 		<div>
@@ -40,13 +40,11 @@
 				ordered: false, //no guaranteed delivery, unreliable but faster 
 				maxRetransmitTime: 1000 //milliseconds
 			};
-
 			var dataChannel;
 			var receivedFileName;
 			var receivedFileSize;
 			var fileBuffer = [];
 			var fileSize = 0;
-
 			io = io.connect();
 			io.emit('ready', {"chat_room": ROOM, "signal_room": SIGNAL_ROOM, "files_room": FILES_ROOM});
 			
@@ -83,7 +81,6 @@
 				receivedFileSize = data.filesize;
 				displaySignalMessage("websockets says the file on it's way is " + receivedFileName + " (" + receivedFileSize + ")");
 			});
-
 			function startSignaling() {
 				displaySignalMessage("starting signaling...");
 				try{
@@ -109,7 +106,6 @@
 				dataChannel = rtcPeerConn.createDataChannel('textMessages', dataChannelOptions);
 				dataChannel.onopen = dataChannelStateChanged;
 				rtcPeerConn.ondatachannel = receiveDataChannel;
-
 				// once remote stream arrives, show it in the remote video element
 				rtcPeerConn.onaddstream = function (evt) {
 					displaySignalMessage("going to add their stream...");
@@ -129,7 +125,6 @@
 			  
 			}
 			
-
 			function dataChannelStateChanged() {
 				if (dataChannel.readyState === 'open') {
 					displaySignalMessage("Data Channel open");
@@ -147,7 +142,7 @@
 			function receiveDataChannelMessage(event) {
 				console.log('receivedatachannelMessage');
 				displaySignalMessage("Incoming Message");
-				displayMessage("From DataChannel: " + event.data);
+				displayMessage("From DataChannel: " + event);
 				
 				//This is where we process incoming files
 				fileBuffer.push(event.data);
@@ -158,14 +153,12 @@
 				if (fileSize === receivedFileSize) {
 					var received = new window.Blob(fileBuffer);
 					fileBuffer = [];
-
 					downloadLink.href = URL.createObjectURL(received);
 					downloadLink.download = receivedFileName;
 					downloadLink.appendChild(document.createTextNode(receivedFileName + "(" + fileSize + ") bytes"));
 				}
 				
 			}
-
 			function sendLocalDesc(desc) {
 				rtcPeerConn.setLocalDescription(desc, function () {
 					displaySignalMessage("sending local description");
@@ -197,7 +190,6 @@
 				io.emit('send', {"author":myName.value, "message":myMessage.value, "room":ROOM});
 				ev.preventDefault();
 			}, false);
-
 			sendFile.addEventListener('change', function(ev){
 				var file = sendFile.files[0];
 				displaySignalMessage("sending file " + file.name + " (" + file.size + ") ...");

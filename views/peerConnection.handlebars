@@ -99,7 +99,6 @@
 		if(err){ console.log('error socket not connected to server'); }
 	}
 
-	if(socket !== undefined){
 		console.log('okkkk');
 		socket.emit('ready', {"chat_room": ROOM, "signal_room": SIGNAL_ROOM});
 		socket.on('announce', function(data){
@@ -130,7 +129,6 @@
 				}
 			}
 		});
-	}
 
 	//initialize rtcPeerConn with our configurations parameters
 	function startSignaling(){

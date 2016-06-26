@@ -19,15 +19,8 @@ var io = require('socket.io').listen(server);
 app.get('/', function(req, res){
 	var context = {};
 	context = 'WebRTC Project Homepage';
-	res.render('samplePeerConn', {title: context});
+	res.render('myPeerConn2', {title: context});
 });
-
-app.get('/channels', function(req, res){
-	var context = {};
-	context = 'WebRTC Project Data Channels';
-	res.render('dataChannels', {title: context});
-});
-
 
 io.on('connection', function(socket){
 	socket.on('ready', function(req){

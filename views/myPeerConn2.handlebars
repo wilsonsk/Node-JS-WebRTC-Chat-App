@@ -1,14 +1,28 @@
-		<script src="/socket.io/socket.io.js"></script>
+<script src="/socket.io/socket.io.js"></script>
 
+		<video id="myVideoTag" autoplay></video>
+		<video id="theirVideoTag" autoplay></video>
 		<div>
 			<input type="file" id="sendFile"/><br/>
 			<progress id="fileProgress" value=“1” max="100"></progress>
 			<a id="receivedFileLink"></a>
 			<hr>
-			<div id="signalingArea">Signaling Messages:</br></div>
-
 		</div>
+		<div>
+			<label>Your Name</label><input id="myName" type="text"/>
+			<label>Message</label><input id="myMessage" type="text"/>
+			<input id="sendMessage" type="submit"/>
+			<div id="chatArea">Message Output:</br></div>
+			<div id="signalingArea">Signaling Messages:</br></div>
+		</div>
+		
 		<script>
+			var myVideoArea = document.querySelector("#myVideoTag");
+			var theirVideoArea = document.querySelector("#theirVideoTag");
+			var myName = document.querySelector("#myName");
+			var myMessage = document.querySelector("#myMessage");
+			var sendMessage = document.querySelector("#sendMessage");
+			var chatArea = document.querySelector("#chatArea");
 			var signalingArea = document.querySelector("#signalingArea");
 			var sendFile = document.querySelector("input#sendFile");
 			var fileProgress = document.querySelector("progress#fileProgress");
@@ -43,9 +57,9 @@
 				displaySignalMessage("Signal received: " + data.type);
 				
 				//Setup the RTC Peer Connection object
-				if (!rtcPeerConn){
+				if (!rtcPeerConn)
 					startSignaling();
-				}	
+					
 				if (data.type != "user_here") {
 					var message = JSON.parse(data.message);
 					if (message.sdp) {
@@ -63,21 +77,18 @@
 				
 			});
 			
-			io.on('files', function(data) {
-				receivedFileName = data.filename;
-				receivedFileSize = data.filesize;
-				displaySignalMessage("websockets says the file on it's way is " + receivedFileName + " (" + receivedFileSize + ")");
-			});
-			
 			function startSignaling() {
 				displaySignalMessage("starting signaling...");
 				
-				rtcPeerConn = new RTCPeerConnection(configuration);
+                try{
+                        rtcPeerConn = new RTCPeerConnection(configuration);
+                }catch(err){
+                        if(err){ console.log("browseer error...switching protocol");
+                        rtcPeerConn = new webkitRTCPeerConnection(configuration); }
+                }
 
-				dataChannel = rtcPeerConn.createDataChannel('textMessages', dataChannelOptions);
-				dataChannel.onopen = dataChannelStateChanged;
-				rtcPeerConn.ondatachannel = receiveDataChannel;
-				
+				//rtcPeerConn = new webkitRTCPeerConnection(configuration, null);
+
 				// send any ice candidates to the other peer
 				rtcPeerConn.onicecandidate = function (evt) {
 					if (evt.candidate)
@@ -90,48 +101,26 @@
 					displaySignalMessage("on negotiation called");
 					rtcPeerConn.createOffer(sendLocalDesc, logError);
 				}
-				//dataChannel = rtcPeerConn.createDataChannel('textMessages', dataChannelOptions);
-				//dataChannel.onopen = dataChannelStateChanged;
-				//rtcPeerConn.ondatachannel = receiveDataChannel;
 				
+				// once remote stream arrives, show it in the remote video element
+				rtcPeerConn.onaddstream = function (evt) {
+					displaySignalMessage("going to add their stream...");
+					theirVideoArea.src = URL.createObjectURL(evt.stream);
+				};
 				
+				// get a local stream, show it in our video tag and add it to be sent
+				navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+				navigator.getUserMedia({
+					'audio': true,
+					'video': true
+				}, function (stream) {
+					displaySignalMessage("going to display my stream...");
+					myVideoArea.src = URL.createObjectURL(stream);
+					rtcPeerConn.addStream(stream);
+				}, logError);
+			  
 			}
-			
-			function dataChannelStateChanged() {
-				if (dataChannel.readyState === 'open') {
-					displaySignalMessage("Data Channel open");
-					dataChannel.onmessage = receiveDataChannelMessage;
-				}
-			}
-			
-			function receiveDataChannel(event) {
-				displaySignalMessage("Receiving a data channel");
-				dataChannel = event.channel;
-				dataChannel.onmessage = receiveDataChannelMessage;
-			}
-			
-			function receiveDataChannelMessage(event) {
-				displaySignalMessage("Incoming Message");
-				displayMessage("From DataChannel: " + event.data);
-				
-				//This is where we process incoming files
-				fileBuffer.push(event.data);
-				fileSize += event.data.byteLength;
-				fileProgress.value = fileSize;
-				
-				//Provide link to downloadable file when complete
-				if (fileSize === receivedFileSize) {
-					var received = new window.Blob(fileBuffer);
-					fileBuffer = [];
-
-					downloadLink.href = URL.createObjectURL(received);
-					downloadLink.download = receivedFileName;
-					downloadLink.appendChild(document.createTextNode(receivedFileName + "(" + fileSize + ") bytes"));
-				}
-				
-			}
-			
-			function sendLocalDesc(desc) {
+					function sendLocalDesc(desc) {
 				rtcPeerConn.setLocalDescription(desc, function () {
 					displaySignalMessage("sending local description");
 					io.emit('signal',{"type":"SDP", "message": JSON.stringify({ 'sdp': rtcPeerConn.localDescription }), "room":SIGNAL_ROOM});
@@ -143,36 +132,25 @@
 			}
 			
 			io.on('announce', function(data) {
-				displayiSignalMessage(data.message);
+				displayMessage(data.message);
 			});
+			
+			io.on('message', function(data) {
+				displayMessage(data.author + ": " + data.message);
+			});
+			
+			function displayMessage(message) {
+				chatArea.innerHTML = chatArea.innerHTML + "<br/>" + message;
+			}
 			
 			function displaySignalMessage(message) {
 				signalingArea.innerHTML = signalingArea.innerHTML + "<br/>" + message;
 			}
 			
-			sendFile.addEventListener('change', function(ev){
-				var file = sendFile.files[0];
-				displaySignalMessage("sending file " + file.name + " (" + file.size + ") ...");
-				io.emit('files',{"filename":file.name, "filesize":file.size, "room":FILES_ROOM});
-				
-				fileProgress.max = file.size;
-				var chunkSize = 16384;
-				var sliceFile = function(offset) {
-					var reader = new window.FileReader();
-					reader.onload = (function() {
-						return function(e) {
-							dataChannel.send(e.target.result);
-							if (file.size > offset + e.target.result.byteLength) {
-								window.setTimeout(sliceFile, 0, offset + chunkSize);
-								}
-							fileProgress.value = offset + e.target.result.byteLength;
-						};
-					})(file);
-					var slice = file.slice(offset, offset + chunkSize);
-					reader.readAsArrayBuffer(slice);
-				};
-				sliceFile(0);		
-			
+			sendMessage.addEventListener('click', function(ev){
+				io.emit('send', {"author":myName.value, "message":myMessage.value, "room":ROOM});
+				//dataChannel.send(myName.value + " says " + myMessage.value);
+				ev.preventDefault();
 			}, false);
-			
+		
 		</script>

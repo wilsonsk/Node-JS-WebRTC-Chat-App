@@ -1,0 +1,167 @@
+<script src="/socket.io/socket.io.js"></script>
+<video id="myVideoTag" autoplay></video>
+<video id="theirVideoTag" autoplay></video>
+<div>
+	<input type="file" id="sendFile"/><br/>
+	<progress id="fileProgress" value=“1” max="100"></progress>
+	<a id="receivedFileLink"></a>
+	<hr>
+</div>
+<div>
+	<label>Your Name</label><input id="myName" type="text"/>
+	<label>Message</label><input id="myMessage" type="text"/>
+	<input id="sendMessage" type="submit"/>
+	<div id="chatArea">Message Output:</br></div>
+	<div id="signalingArea">Signaling Messages:</br></div>
+</div>
+<script>
+	var myVideoArea = document.querySelector("#myVideoTag");
+	myVideoArea.volume = 0;
+	var theirVideoArea = document.querySelector("#theirVideoTag");
+	var myName = document.querySelector("#myName");
+	var myMessage = document.querySelector("#myMessage");
+	var sendMessage = document.querySelector("#sendMessage");
+	var chatArea = document.querySelector("#chatArea");
+	var signalingArea = document.querySelector("#signalingArea");
+	var sendFile = document.querySelector("input#sendFile");
+	var fileProgress = document.querySelector("progress#fileProgress");
+	var downloadLink = document.querySelector('a#receivedFileLink');
+	var ROOM = "chat";
+	var SIGNAL_ROOM = "signal_room";
+	var FILES_ROOM = "files";
+	var configuration = {
+		'iceServers': [{
+			'url': 'stun:stun.l.google.com:19302'
+		}]
+	};
+	var rtcPeerConn;
+	var dataChannelOptions = {
+		ordered: false, //no guaranteed delivery, unreliable but faster 
+		maxRetransmitTime: 1000 //milliseconds
+	};
+	var dataChannel;
+	var receivedFileName;
+	var receivedFileSize;
+	var fileBuffer = [];
+	var fileSize = 0;
+
+	io = io();			
+	io.emit('ready', {"chat_room": ROOM, "signal_room": SIGNAL_ROOM, "files_room": FILES_ROOM});	
+	//Send a first signaling message to anyone listening
+	//This normally would be on a button click
+	io.emit('signal',{"type":"user_here", "message":"Are you ready for a call?", "room":SIGNAL_ROOM});
+
+
+	//handles all incoming signals
+	io.on('signaling_message', function(data){
+		displaySignalMessage('Signal received from peer: ' + data.type);
+
+		if(!rtcPeerConn){
+			startSignaling();
+		}
+		
+		if(data.type != 'user_here'){
+			var message = JSON.parse(data.message);
+			console.log("peer's message: " + message);
+			if(message.sdp){
+				//set rtcPeerConn's remote sdp to that of the message.sdp
+				rtcPeerConn.setRemoteDescription(new RTCSessionDescription(message.sdp), function(){
+					//RTCSessionDescription.type == describing the session description's type: answer, offer, pranswer, rollback
+					//if this remote sdp is an offer then create an answer by send local sdp of its own to remote peer
+					if(rtcPeerConn.remoteDescription.type == 'offer'){
+						rtcPeerConn.createAnswer(sendLocalDesc, logError);
+					}
+				}. logError);
+			}else{
+				//if message.sdp is null, then it is an ICE candidate from the remote peer and it needs to be added the local rtcPeerConn's remote sdp which describes
+				//the state of the remote end of the connection
+				rtcPeerConn.addIceCandidate(new RTCIceCandidate(message.candidate));		
+			}
+		}
+
+	});
+
+	function startSignaling(){
+		displaySignalMessage("Your peer's rtcPeerConn not defined yet. Starting initial signaling");
+		try{
+			rtcPeerConn = new RTCPeerConnection(configuration);
+		}catch(err){
+			if(err){ console.log("browseer error...switching protocol");
+			rtcPeerConn = new webkitRTCPeerConnection(configuration); }
+		}
+		//event handler for when local peer has ICE candidate to rtcPeerConn's remote peer upon receiving remote peer's SDP offer
+		//this happens whenever the local ICE agent needs to deliver a message to remote peer
+		//should deliver ICE candidate whose SDP can be found in the event's candidate property to the remote peer via signaling 'signal' (signaling server)
+		rtcPeerConn.onicecandidate = function(evt){
+			console.log('evt: ' + evt);
+			console.log('evt.candidate: ' + evt.candidate);
+			if(evt.candidate){
+				//Send ice candidate to remote peer via signaling 'signal'
+				io.emit('signal', {"type":"ice candidate", "message":JSON.stringify({'candidate':evt.candidate}), "room":SIGNAL_ROOM});
+			}
+			displaySignalMessage("you peer is sending you an ice candidate");
+		};
+		
+		//event is fired at beginning of connection usually by first peer
+		//this peer then creates an sdp offer and sends it to its remote peer
+		rtcPeerConn.onnegotiationneeded = function(){
+			displaySignalMessage('Your peer is creating and sending an initial SDP offer');
+			//creates SDP offer which includes info about any MediaStreamTracks, codec, and options supported by the browser, and any candidates already gathered by ICE agents
+			rtcPeerConn.createOffer(sendLocalDesc, logError);
+		};
+
+		rtcPeerConn.onaddstream = function(evt){
+			displaySignalMessage("peer has added your stream");
+			theirVideoArea.src = URL.createObjectURL(evt.stream);
+		};	
+
+		// get a local stream, show it in our video tag and add it to be sent
+		navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+		navigator.getUserMedia({
+			'audio': true,
+			'video': true
+		}, function (stream) {
+			displaySignalMessage("peer is adding their stream...");
+			myVideoArea.src = URL.createObjectURL(stream);
+			rtcPeerConn.addStream(stream);
+		}, logError);
+
+	}
+
+	//send local SDP to remote peer via signaling 'signal'
+	function sendLocalDesc(desc){
+		rtcPeerConn.setLocalDescription(desc, function(){
+			displaySignalMessage("sending your local SDP to peer");
+			io.emit('signal', {"type":"SDP", "message": JSON.stringify({'sdp': rtcPeerConn.localDescription}), "room":SIGNAL_ROOM});
+		}, logError);
+	}
+
+	function logError(error) {
+		displaySignalMessage(error.name + ': ' + error.message);
+	}
+			
+	io.on('announce', function(data) {
+		displayMessage(data.message);
+	});
+			
+	io.on('message', function(data) {
+		displayMessage(data.author + ": " + data.message);
+	});
+			
+	function displayMessage(message) {
+		chatArea.innerHTML = chatArea.innerHTML + "<br/>" + message;
+	}
+			
+	function displaySignalMessage(message) {
+		signalingArea.innerHTML = signalingArea.innerHTML + "<br/>" + message;
+	}
+			
+	sendMessage.addEventListener('click', function(ev){
+		io.emit('send', {"author":myName.value, "message":myMessage.value, "room":ROOM});
+		ev.preventDefault();
+	}, false);
+
+
+
+
+</script>
